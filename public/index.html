@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Static File</title>
+</head>
+<body>
+
+  <!-- Login Section -->
+  <div id="login-section">
+    <h1>Login</h1>
+    <input type="text" id="username-input" placeholder="Username" />
+    <input type="password" id="password-input" placeholder="Password" />
+    <button id="login-btn">Login</button>
+    <p id="login-error" style="color:red;"></p>
+  </div>
+
+  <!-- App Section (shown after login) -->
+  <div id="app-section" style="display:none;">
+    <h1>Hello from a static file!</h1>
+    <p id="user-info"></p>
+    <button id="logout-btn">Logout</button>
+
+    <form id="item-form">
+      <input type="text" id="item-input" placeholder="Add an item" required>
+      <button type="submit">Add</button>
+    </form>
+    <ul id="item-list"></ul>
+  </div>
+
+  <script>
+    // --- Auth helpers ---
+    function getUser() {
+      const stored = localStorage.getItem('user');
+      return stored ? JSON.parse(stored) : null;
+    }
+
+    function clearUser() {
+      localStorage.removeItem('user');
+    }
+
+    // --- UI toggle ---
+    function showApp(user) {
+      document.getElementById('login-section').style.display = 'none';
+      document.getElementById('app-section').style.display = 'block';
+      document.getElementById('user-info').textContent =
+        `Logged in as: ${user.username} (${user.role})`;
+      loadItems();
+    }
+
+    // Alias used by login() function
+    function showDashboard(user) {
+      showApp(user);
+    }
+
+    function showLogin() {
+      document.getElementById('login-section').style.display = 'block';
+      document.getElementById('app-section').style.display = 'none';
+    }
+
+    // --- Auth header helper ---
+    function getAuthHeader() {
+      const token = sessionStorage.getItem('authToken');
+      return token ? { Authorization: `Bearer ${token}` } : {};
+    }
+
+    // --- Load admin dashboard ---
+    async function loadAdminDashboard() {
+      const res = await fetch('http://localhost:3000/api/admin/dashboard', {
+        headers: getAuthHeader()
+      });
+      if (res.ok) {
+        const data = await res.json();
+        document.getElementById('content').innerText = data.message;
+      } else {
+        document.getElementById('content').innerText = 'Access denied!';
+      }
+    }
+
+    // --- Login function (from image) ---
+    async function login(username, password) {
+      try {
+        const response = await fetch('http://localhost:3000/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          // Save token in memory (or sessionStorage for page refresh)
+          sessionStorage.setItem('authToken', data.token);
+          showDashboard(data.user);
+        } else {
+          alert('Login failed: ' + data.error);
+        }
+      } catch (err) {
+        alert('Network error');
+      }
+    }
+
+    // --- Login button ---
+    document.getElementById('login-btn').addEventListener('click', async () => {
+      const username = document.getElementById('username-input').value.trim();
+      const password = document.getElementById('password-input').value.trim();
+      const errorEl = document.getElementById('login-error');
+
+      const response = await fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+
+      if (response.ok) {
+        const { username: uname, role } = await response.json();
+        errorEl.textContent = '';
+        showApp({ username: uname, role });
+      } else {
+        const { error } = await response.json();
+        errorEl.textContent = error;
+      }
+    });
+
+    // --- Logout ---
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      await fetch('/logout', { method: 'POST' });
+      clearUser();
+      showLogin();
+    });
+
+    // --- Items ---
+    const form = document.getElementById('item-form');
+    const input = document.getElementById('item-input');
+    const list = document.getElementById('item-list');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const item = input.value.trim();
+      if (item) {
+        await fetch('/items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item })
+        });
+        input.value = '';
+        loadItems();
+      }
+    });
+
+    async function loadItems() {
+      const response = await fetch('/items');
+      const items = await response.json();
+      list.innerHTML = items.map(item => `<li>${item}</li>`).join('');
+    }
+
+    // --- Init: restore session from localStorage ---
+    const existingUser = getUser();
+    if (existingUser) {
+      showApp(existingUser);
+    } else {
+      showLogin();
+    }
+  </script>
+</body>
+</html>
