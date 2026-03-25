@@ -1,0 +1,17 @@
+.page { display: none; }
+.page.active { display: block; }
+
+body.not-authenticated .role-logged-in  { display: none; }
+body.authenticated     .role-logged-out { display: none; }
+
+.role-admin { display: none; }
+body.is-admin .role-admin { display: block; }
+
+.req-item-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.req-item-row .form-control { flex: 1; }
+.req-qty { width: 80px !important; flex: none !important; }
