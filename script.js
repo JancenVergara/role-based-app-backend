@@ -1,67 +1,26 @@
 'use strict';
 
-/* ─────────────────────────────────────────────────────────
-   PHASE 4 — DATA PERSISTENCE
-───────────────────────────────────────────────────────── */
-const STORAGE_KEY = 'ipt_demo_v1';
+const API = 'http://localhost:3000/api';
 
 let currentUser = null;
 
-function loadFromStorage() {
-  const defaultDb = {
-    accounts: [
-      {
-        firstName:  'Admin',
-        lastName:   'User',
-        email:      'admin@example.com',
-        password:   'Password123!',
-        role:       'admin',
-        verified:   true,
-        joinedDate: new Date().toISOString().split('T')[0],
-      }
-    ],
-    departments: [
-      { id: 'dept-1', name: 'Engineering',     description: 'Software engineering and product development.' },
-      { id: 'dept-2', name: 'Human Resources', description: 'People operations, hiring, and culture.' },
-    ],
-    employees: [],
-    requests:  [],
-  };
+// API HELPER 
+async function apiFetch(path, options = {}) {
+  const token = localStorage.getItem('auth_token');
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    window.db = saved ? JSON.parse(saved) : defaultDb;
-  } catch (e) {
-    console.warn('Failed to load from localStorage, using defaults.', e);
-    window.db = defaultDb;
-  }
-
-  // Ensure all required keys exist (in case of partial/old saves)
-  if (!window.db.accounts)     window.db.accounts     = defaultDb.accounts;
-  if (!window.db.departments)  window.db.departments  = defaultDb.departments;
-  if (!window.db.employees)    window.db.employees    = [];
-  if (!window.db.requests)     window.db.requests     = [];
-
-  saveToStorage();
+  const res = await fetch(`${API}${path}`, { ...options, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
 }
 
-function saveToStorage() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(window.db));
-  } catch (e) {
-    console.warn('Failed to save to localStorage.', e);
-  }
-}
-
-/* ─────────────────────────────────────────────────────────
-   PHASE 2 — CLIENT-SIDE ROUTING
-───────────────────────────────────────────────────────── */
+/* ROUTING */
 const protectedRoutes = ['profile', 'requests'];
 const adminRoutes     = ['employees', 'accounts', 'departments'];
 
-function navigateTo(hash) {
-  window.location.hash = hash;
-}
+function navigateTo(hash) { window.location.hash = hash; }
 
 function handleRouting() {
   let hash = window.location.hash || '#/';
@@ -87,44 +46,32 @@ function handleRouting() {
 function onPageEnter(route) {
   switch (route) {
     case 'verify-email':  renderVerifyEmail();     break;
-    case 'profile':       renderProfile();          break;
-    case 'employees':     renderEmployeesTable();   break;
-    case 'departments':   renderDepartmentsTable(); break;
-    case 'accounts':      renderAccountsList();     break;
-    case 'requests':      renderRequestsTable();    break;
+    case 'profile':       renderProfile();         break;
+    case 'employees':     renderEmployeesTable();  break;
+    case 'departments':   renderDepartmentsTable();break;
+    case 'accounts':      renderAccountsList();    break;
+    case 'requests':      renderRequestsTable();   break;
   }
 }
 
-/* ─────────────────────────────────────────────────────────
-   PHASE 3 — AUTHENTICATION
-───────────────────────────────────────────────────────── */
-
-// D. Auth state
+/*  AUTH STATE */
 function setAuthState(isAuth, user = null) {
   currentUser = user;
   const body = document.body;
   if (isAuth && user) {
     body.classList.remove('not-authenticated');
     body.classList.add('authenticated');
-    if (user.role === 'admin') body.classList.add('is-admin');
-    else body.classList.remove('is-admin');
+    body.classList.toggle('is-admin', user.role === 'admin');
     const el = document.getElementById('nav-username');
     if (el) el.textContent = `${user.firstName} ${user.lastName}`;
-    // Show name in navbar brand
-    const brandName = document.getElementById('nav-brand-username');
-    const brandSpan = document.getElementById('nav-brand-name');
-    if (brandName) brandName.textContent = `${user.firstName} ${user.lastName}`;
-    if (brandSpan) brandSpan.classList.remove('d-none');
   } else {
     body.classList.remove('authenticated', 'is-admin');
     body.classList.add('not-authenticated');
-    const brandSpan = document.getElementById('nav-brand-name');
-    if (brandSpan) brandSpan.classList.add('d-none');
   }
 }
 
-// Register
-function handleRegister(e) {
+/* REGISTER */
+async function handleRegister(e) {
   e.preventDefault();
   const form = document.getElementById('register-form');
   const err  = document.getElementById('register-error');
@@ -137,69 +84,72 @@ function handleRegister(e) {
   const password  = document.getElementById('reg-password').value;
 
   let valid = true;
-  if (!firstName) { document.getElementById('reg-fname').classList.add('is-invalid'); valid = false; }
-  if (!lastName)  { document.getElementById('reg-lname').classList.add('is-invalid'); valid = false; }
-  if (!email)     { document.getElementById('reg-email').classList.add('is-invalid');  valid = false; }
+  if (!firstName) { document.getElementById('reg-fname').classList.add('is-invalid');    valid = false; }
+  if (!lastName)  { document.getElementById('reg-lname').classList.add('is-invalid');    valid = false; }
+  if (!email)     { document.getElementById('reg-email').classList.add('is-invalid');    valid = false; }
   if (password.length < 6) { document.getElementById('reg-password').classList.add('is-invalid'); valid = false; }
   if (!valid) return;
 
-  if (window.db.accounts.find(a => a.email === email)) {
-    return showError(err, 'An account with that email already exists.');
+  try {
+    await apiFetch('/register', {
+      method: 'POST',
+      body: JSON.stringify({ firstName, lastName, email, password }),
+    });
+    localStorage.setItem('unverified_email', email);
+    form.reset();
+    navigateTo('#/verify-email');
+  } catch (err2) {
+    showError(err, err2.message);
   }
-
-  window.db.accounts.push({
-    firstName, lastName, email, password,
-    role: 'user', verified: false,
-    joinedDate: new Date().toISOString().split('T')[0],
-  });
-  saveToStorage();
-  localStorage.setItem('unverified_email', email);
-  form.reset();
-  navigateTo('#/verify-email');
 }
 
-// Verify email (simulated)
+/* VERIFY EMAIL */
 function renderVerifyEmail() {
   const email = localStorage.getItem('unverified_email') || '';
   const el = document.getElementById('verify-email-display');
   if (el) el.textContent = email || '(no email found)';
 }
 
-function handleSimulateVerify() {
-  const email   = localStorage.getItem('unverified_email');
-  const account = window.db.accounts.find(a => a.email === email);
-  if (!account) {
+async function handleSimulateVerify() {
+  const email = localStorage.getItem('unverified_email');
+  if (!email) {
     showToast('No pending verification found.', 'danger');
     return navigateTo('#/register');
   }
-  account.verified = true;
-  saveToStorage();
-  localStorage.removeItem('unverified_email');
-  showToast('Email verified! You can now log in.', 'success');
-  navigateTo('#/login');
+  try {
+    await apiFetch('/verify-email', { method: 'POST', body: JSON.stringify({ email }) });
+    localStorage.removeItem('unverified_email');
+    showToast('Email verified! You can now log in.', 'success');
+    navigateTo('#/login');
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
 }
 
-// Login
-function handleLogin(e) {
+/* LOGIN */
+async function handleLogin(e) {
   e.preventDefault();
   const err = document.getElementById('login-error');
   hideError(err);
 
   const email    = document.getElementById('login-email').value.trim().toLowerCase();
   const password = document.getElementById('login-password').value;
-  const account  = window.db.accounts.find(
-    a => a.email === email && a.password === password && a.verified === true
-  );
 
-  if (!account) return showError(err, 'Invalid email or password, or email not verified.');
-
-  localStorage.setItem('auth_token', email);
-  setAuthState(true, account);
-  showToast(`Welcome back, ${account.firstName}!`, 'success');
-  navigateTo('#/profile');
+  try {
+    const data = await apiFetch('/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
+    localStorage.setItem('auth_token', data.token);
+    setAuthState(true, data.user);
+    showToast(`Welcome back, ${data.user.firstName}!`, 'success');
+    navigateTo('#/profile');
+  } catch (err2) {
+    showError(err, err2.message);
+  }
 }
 
-// Logout
+/* LOGOUT */
 function handleLogout(e) {
   e.preventDefault();
   localStorage.removeItem('auth_token');
@@ -207,18 +157,19 @@ function handleLogout(e) {
   navigateTo('#/');
 }
 
-// Restore session on load
-function restoreSession() {
+/* RESTORE SESSION */
+async function restoreSession() {
   const token = localStorage.getItem('auth_token');
   if (!token) return;
-  const account = window.db.accounts.find(a => a.email === token);
-  if (account && account.verified) setAuthState(true, account);
-  else localStorage.removeItem('auth_token');
+  try {
+    const user = await apiFetch('/profile');
+    setAuthState(true, user);
+  } catch {
+    localStorage.removeItem('auth_token');
+  }
 }
 
-/* ─────────────────────────────────────────────────────────
-   PHASE 5 — PROFILE
-───────────────────────────────────────────────────────── */
+/* PROFILE */
 function renderProfile() {
   if (!currentUser) return;
   const u = currentUser;
@@ -230,75 +181,84 @@ function renderProfile() {
     : 'No ❌';
 }
 
-/* ─────────────────────────────────────────────────────────
-   PHASE 6 — ADMIN CRUD
-───────────────────────────────────────────────────────── */
-
-/* ── ACCOUNTS ── */
-function renderAccountsList() {
+/* ACCOUNTS (admin) */
+async function renderAccountsList() {
   const tbody = document.getElementById('accounts-tbody');
   const empty = document.getElementById('accounts-empty');
-  tbody.innerHTML = '';
+  tbody.innerHTML = '<tr><td colspan="5" class="text-muted text-center py-3">Loading…</td></tr>';
 
-  if (!window.db.accounts.length) { empty.classList.remove('d-none'); return; }
-  empty.classList.add('d-none');
+  try {
+    const accounts = await apiFetch('/accounts');
+    tbody.innerHTML = '';
+    if (!accounts.length) { empty.classList.remove('d-none'); return; }
+    empty.classList.add('d-none');
 
-  window.db.accounts.forEach(acc => {
-    const isSelf = currentUser && currentUser.email === acc.email;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${esc(acc.firstName)} ${esc(acc.lastName)}</td>
-      <td>${esc(acc.email)}</td>
-      <td>${capitalize(acc.role)}</td>
-      <td>${acc.verified ? 'Yes ✅' : 'No ❌'}</td>
-      <td>
-        <button class="btn btn-sm btn-outline-primary me-1" onclick="editAccount('${esc(acc.email)}')">Edit</button>
-        <button class="btn btn-sm btn-outline-secondary me-1" onclick="resetPassword('${esc(acc.email)}')">Reset PW</button>
-        <button class="btn btn-sm btn-outline-danger" onclick="deleteAccount('${esc(acc.email)}')" ${isSelf ? 'disabled' : ''}>Delete</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
+    accounts.forEach(acc => {
+      const isSelf = currentUser && currentUser.email === acc.email;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${esc(acc.firstName)} ${esc(acc.lastName)}</td>
+        <td>${esc(acc.email)}</td>
+        <td>${capitalize(acc.role)}</td>
+        <td>${acc.verified ? 'Yes ✅' : 'No ❌'}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-primary me-1" onclick="editAccount('${esc(acc.email)}')">Edit</button>
+          <button class="btn btn-sm btn-outline-secondary me-1" onclick="resetPassword('${esc(acc.email)}')">Reset PW</button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteAccount('${esc(acc.email)}')" ${isSelf ? 'disabled' : ''}>Delete</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-danger text-center py-3">${esc(err.message)}</td></tr>`;
+  }
 }
 
-function editAccount(email) {
-  const acc = window.db.accounts.find(a => a.email === email);
-  if (!acc) return;
-  showAccountForm();
-  document.getElementById('account-form-title').textContent = 'Edit Account';
-  document.getElementById('acc-edit-email').value = acc.email;
-  document.getElementById('acc-fname').value      = acc.firstName;
-  document.getElementById('acc-lname').value      = acc.lastName;
-  document.getElementById('acc-email').value      = acc.email;
-  document.getElementById('acc-password').value   = '';
-  document.getElementById('acc-role').value       = acc.role;
-  document.getElementById('acc-verified').checked = acc.verified;
+async function editAccount(email) {
+  try {
+    const accounts = await apiFetch('/accounts');
+    const acc = accounts.find(a => a.email === email);
+    if (!acc) return showToast('Account not found.', 'danger');
+    showAccountForm();
+    document.getElementById('account-form-title').textContent = 'Edit Account';
+    document.getElementById('acc-edit-email').value  = acc.email;
+    document.getElementById('acc-fname').value       = acc.firstName;
+    document.getElementById('acc-lname').value       = acc.lastName;
+    document.getElementById('acc-email').value       = acc.email;
+    document.getElementById('acc-password').value    = '';
+    document.getElementById('acc-role').value        = acc.role;
+    document.getElementById('acc-verified').checked  = acc.verified;
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
 }
 
-function resetPassword(email) {
+async function resetPassword(email) {
   const newPw = window.prompt('Enter new password (min 6 characters):');
   if (newPw === null) return;
   if (newPw.length < 6) return showToast('Password must be at least 6 characters.', 'danger');
-  const acc = window.db.accounts.find(a => a.email === email);
-  if (!acc) return;
-  acc.password = newPw;
-  saveToStorage();
-  showToast('Password reset successfully.', 'success');
-}
-
-function deleteAccount(email) {
-  if (currentUser && currentUser.email === email) {
-    return showToast('You cannot delete your own account.', 'danger');
+  try {
+    await apiFetch(`/accounts/${encodeURIComponent(email)}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ password: newPw }),
+    });
+    showToast('Password reset successfully.', 'success');
+  } catch (err) {
+    showToast(err.message, 'danger');
   }
-  if (!confirm(`Delete account for ${email}?`)) return;
-  window.db.accounts  = window.db.accounts.filter(a => a.email !== email);
-  window.db.employees = window.db.employees.filter(e => e.email !== email);
-  saveToStorage();
-  renderAccountsList();
-  showToast('Account deleted.', 'success');
 }
 
-function handleAccountForm(e) {
+async function deleteAccount(email) {
+  if (!confirm(`Delete account for ${email}?`)) return;
+  try {
+    await apiFetch(`/accounts/${encodeURIComponent(email)}`, { method: 'DELETE' });
+    showToast('Account deleted.', 'success');
+    renderAccountsList();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function handleAccountForm(e) {
   e.preventDefault();
   const err       = document.getElementById('account-form-error');
   const editEmail = document.getElementById('acc-edit-email').value;
@@ -310,38 +270,33 @@ function handleAccountForm(e) {
   const verified  = document.getElementById('acc-verified').checked;
   hideError(err);
 
-  if (!firstName || !lastName || !email) return showError(err, 'First name, last name, and email are required.');
+  if (!firstName || !lastName || !email)
+    return showError(err, 'First name, last name, and email are required.');
 
-  if (editEmail) {
-    const acc = window.db.accounts.find(a => a.email === editEmail);
-    if (!acc) return showError(err, 'Account not found.');
-    if (email !== editEmail && window.db.accounts.find(a => a.email === email)) {
-      return showError(err, 'Another account with that email already exists.');
+  try {
+    if (editEmail) {
+      const updated = await apiFetch(`/accounts/${encodeURIComponent(editEmail)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ firstName, lastName, email, password: password || undefined, role, verified }),
+      });
+      if (currentUser && currentUser.email === editEmail) {
+        setAuthState(true, updated);
+      }
+      showToast('Account updated.', 'success');
+    } else {
+      if (!password || password.length < 6)
+        return showError(err, 'Password must be at least 6 characters.');
+      await apiFetch('/accounts', {
+        method: 'POST',
+        body: JSON.stringify({ firstName, lastName, email, password, role, verified }),
+      });
+      showToast('Account created.', 'success');
     }
-    acc.firstName = firstName; acc.lastName = lastName; acc.email = email;
-    if (password) {
-      if (password.length < 6) return showError(err, 'Password must be at least 6 characters.');
-      acc.password = password;
-    }
-    acc.role = role; acc.verified = verified;
-    if (currentUser && currentUser.email === editEmail) {
-      currentUser = acc;
-      document.getElementById('nav-username').textContent = `${acc.firstName} ${acc.lastName}`;
-    }
-    showToast('Account updated.', 'success');
-  } else {
-    if (!password || password.length < 6) return showError(err, 'Password must be at least 6 characters.');
-    if (window.db.accounts.find(a => a.email === email)) return showError(err, 'Email already in use.');
-    window.db.accounts.push({
-      firstName, lastName, email, password, role, verified,
-      joinedDate: new Date().toISOString().split('T')[0],
-    });
-    showToast('Account created.', 'success');
+    hideAccountForm();
+    renderAccountsList();
+  } catch (err2) {
+    showError(err, err2.message);
   }
-
-  saveToStorage();
-  hideAccountForm();
-  renderAccountsList();
 }
 
 function showAccountForm() {
@@ -353,84 +308,148 @@ function showAccountForm() {
   hideError(document.getElementById('account-form-error'));
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-
 function hideAccountForm() {
   document.getElementById('account-form-panel').classList.add('d-none');
 }
 
-/* ── DEPARTMENTS ── */
-function renderDepartmentsTable() {
+/* DEPARTMENTS */
+async function renderDepartmentsTable() {
   const tbody = document.getElementById('departments-tbody');
   const empty = document.getElementById('departments-empty');
-  tbody.innerHTML = '';
+  tbody.innerHTML = '<tr><td colspan="3" class="text-muted text-center py-3">Loading…</td></tr>';
 
-  if (!window.db.departments.length) { empty.classList.remove('d-none'); return; }
-  empty.classList.add('d-none');
+  try {
+    const depts = await apiFetch('/departments');
+    tbody.innerHTML = '';
+    if (!depts.length) { empty.classList.remove('d-none'); return; }
+    empty.classList.add('d-none');
 
-  window.db.departments.forEach(dept => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${esc(dept.name)}</td>
-      <td>${esc(dept.description || '—')}</td>
-      <td>
-        <button class="btn btn-sm btn-outline-primary me-1" onclick="alert('Edit Department — not implemented yet.')">Edit</button>
-        <button class="btn btn-sm btn-outline-danger" onclick="alert('Delete Department — not implemented yet.')">Delete</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
+    depts.forEach(dept => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${esc(dept.name)}</td>
+        <td>${esc(dept.description || '—')}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-primary me-1" onclick="editDepartment('${esc(dept.id)}')">Edit</button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteDepartment('${esc(dept.id)}')">Delete</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="3" class="text-danger text-center py-3">${esc(err.message)}</td></tr>`;
+  }
 }
 
-/* ── EMPLOYEES ── */
-function renderEmployeesTable() {
+async function editDepartment(id) {
+  const name = window.prompt('New department name:');
+  if (!name) return;
+  const description = window.prompt('New description (optional):') || '';
+  try {
+    await apiFetch(`/departments/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name, description }),
+    });
+    showToast('Department updated.', 'success');
+    renderDepartmentsTable();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function deleteDepartment(id) {
+  if (!confirm('Delete this department?')) return;
+  try {
+    await apiFetch(`/departments/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    showToast('Department deleted.', 'success');
+    renderDepartmentsTable();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+// Wire the Add Department button
+async function handleAddDepartment() {
+  const name = window.prompt('Department name:');
+  if (!name) return;
+  const description = window.prompt('Description (optional):') || '';
+  try {
+    await apiFetch('/departments', {
+      method: 'POST',
+      body: JSON.stringify({ name, description }),
+    });
+    showToast('Department added.', 'success');
+    renderDepartmentsTable();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+/* EMPLOYEES */
+async function renderEmployeesTable() {
   const tbody = document.getElementById('employees-tbody');
   const empty = document.getElementById('employees-empty');
-  tbody.innerHTML = '';
-  populateDeptDropdown('emp-dept');
+  tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center py-3">Loading…</td></tr>';
+  await populateDeptDropdown('emp-dept');
 
-  if (!window.db.employees.length) { empty.classList.remove('d-none'); return; }
-  empty.classList.add('d-none');
+  try {
+    const [employees, departments] = await Promise.all([
+      apiFetch('/employees'),
+      apiFetch('/departments'),
+    ]);
+    tbody.innerHTML = '';
+    if (!employees.length) { empty.classList.remove('d-none'); return; }
+    empty.classList.add('d-none');
 
-  window.db.employees.forEach((emp, idx) => {
-    const dept = window.db.departments.find(d => d.id === emp.deptId);
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${esc(emp.employeeId)}</td>
-      <td>${esc(emp.email)}</td>
-      <td>${esc(emp.position)}</td>
-      <td>${dept ? esc(dept.name) : '—'}</td>
-      <td>${esc(emp.hireDate || '—')}</td>
-      <td>
-        <button class="btn btn-sm btn-outline-primary me-1" onclick="editEmployee(${idx})">Edit</button>
-        <button class="btn btn-sm btn-outline-danger" onclick="deleteEmployee(${idx})">Delete</button>
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
+    employees.forEach((emp, idx) => {
+      const dept = departments.find(d => d.id === emp.deptId);
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${esc(emp.employeeId)}</td>
+        <td>${esc(emp.email)}</td>
+        <td>${esc(emp.position)}</td>
+        <td>${dept ? esc(dept.name) : '—'}</td>
+        <td>${esc(emp.hireDate || '—')}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-primary me-1" onclick="editEmployee(${idx})">Edit</button>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteEmployee(${idx})">Delete</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-danger text-center py-3">${esc(err.message)}</td></tr>`;
+  }
 }
 
-function editEmployee(idx) {
-  const emp = window.db.employees[idx];
-  if (!emp) return;
-  showEmployeeForm();
-  document.getElementById('employee-form-title').textContent = 'Edit Employee';
-  document.getElementById('emp-edit-id').value   = String(idx);
-  document.getElementById('emp-id').value        = emp.employeeId;
-  document.getElementById('emp-email').value     = emp.email;
-  document.getElementById('emp-position').value  = emp.position;
-  document.getElementById('emp-dept').value      = emp.deptId;
-  document.getElementById('emp-hire-date').value = emp.hireDate || '';
+async function editEmployee(idx) {
+  try {
+    const employees = await apiFetch('/employees');
+    const emp = employees[idx];
+    if (!emp) return;
+    showEmployeeForm();
+    document.getElementById('employee-form-title').textContent = 'Edit Employee';
+    document.getElementById('emp-edit-id').value   = String(idx);
+    document.getElementById('emp-id').value        = emp.employeeId;
+    document.getElementById('emp-email').value     = emp.email;
+    document.getElementById('emp-position').value  = emp.position;
+    document.getElementById('emp-dept').value      = emp.deptId;
+    document.getElementById('emp-hire-date').value = emp.hireDate || '';
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
 }
 
-function deleteEmployee(idx) {
+async function deleteEmployee(idx) {
   if (!confirm('Delete this employee record?')) return;
-  window.db.employees.splice(idx, 1);
-  saveToStorage();
-  renderEmployeesTable();
-  showToast('Employee deleted.', 'success');
+  try {
+    await apiFetch(`/employees/${idx}`, { method: 'DELETE' });
+    showToast('Employee deleted.', 'success');
+    renderEmployeesTable();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
 }
 
-function handleEmployeeForm(e) {
+async function handleEmployeeForm(e) {
   e.preventDefault();
   const err        = document.getElementById('employee-form-error');
   const editIdxStr = document.getElementById('emp-edit-id').value;
@@ -441,87 +460,86 @@ function handleEmployeeForm(e) {
   const hireDate   = document.getElementById('emp-hire-date').value;
   hideError(err);
 
-  if (!employeeId || !email || !position || !deptId) {
+  if (!employeeId || !email || !position || !deptId)
     return showError(err, 'Employee ID, email, position, and department are required.');
-  }
-  if (!window.db.accounts.find(a => a.email === email)) {
-    return showError(err, 'No account found with that email address.');
-  }
 
-  const empData = { employeeId, email, position, deptId, hireDate: hireDate || '' };
-
-  if (editIdxStr !== '') {
-    window.db.employees[parseInt(editIdxStr)] = empData;
-    showToast('Employee updated.', 'success');
-  } else {
-    window.db.employees.push(empData);
-    showToast('Employee added.', 'success');
+  try {
+    const body = JSON.stringify({ employeeId, email, position, deptId, hireDate });
+    if (editIdxStr !== '') {
+      await apiFetch(`/employees/${editIdxStr}`, { method: 'PUT', body });
+      showToast('Employee updated.', 'success');
+    } else {
+      await apiFetch('/employees', { method: 'POST', body });
+      showToast('Employee added.', 'success');
+    }
+    hideEmployeeForm();
+    renderEmployeesTable();
+  } catch (err2) {
+    showError(err, err2.message);
   }
-
-  saveToStorage();
-  hideEmployeeForm();
-  renderEmployeesTable();
 }
 
-function showEmployeeForm() {
+async function showEmployeeForm() {
   const panel = document.getElementById('employee-form-panel');
   panel.classList.remove('d-none');
   document.getElementById('employee-form').reset();
   document.getElementById('emp-edit-id').value = '';
   document.getElementById('employee-form-title').textContent = 'New Employee';
   hideError(document.getElementById('employee-form-error'));
-  populateDeptDropdown('emp-dept');
+  await populateDeptDropdown('emp-dept');
   panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-
 function hideEmployeeForm() {
   document.getElementById('employee-form-panel').classList.add('d-none');
 }
 
-function populateDeptDropdown(selectId) {
+async function populateDeptDropdown(selectId) {
   const sel = document.getElementById(selectId);
   if (!sel) return;
   const current = sel.value;
   sel.innerHTML = '<option value="">— Select —</option>';
-  window.db.departments.forEach(d => {
-    const opt = document.createElement('option');
-    opt.value = d.id;
-    opt.textContent = d.name;
-    if (d.id === current) opt.selected = true;
-    sel.appendChild(opt);
-  });
+  try {
+    const depts = await apiFetch('/departments');
+    depts.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.id; opt.textContent = d.name;
+      if (d.id === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  } catch { /* leave empty if fetch fails */ }
 }
 
-/* ─────────────────────────────────────────────────────────
-   PHASE 7 — USER REQUESTS
-───────────────────────────────────────────────────────── */
-function renderRequestsTable() {
+/* REQUESTS */
+async function renderRequestsTable() {
   const tbody = document.getElementById('requests-tbody');
   const empty = document.getElementById('requests-empty');
-  tbody.innerHTML = '';
+  tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">Loading…</td></tr>';
   if (!currentUser) return;
 
-  const mine = window.db.requests.filter(r => r.employeeEmail === currentUser.email);
-  if (!mine.length) { empty.classList.remove('d-none'); return; }
-  empty.classList.add('d-none');
+  try {
+    const requests = await apiFetch('/requests');
+    tbody.innerHTML = '';
+    if (!requests.length) { empty.classList.remove('d-none'); return; }
+    empty.classList.add('d-none');
 
-  mine.forEach(req => {
-    const badgeClass = {
-      'Pending':  'bg-warning text-dark',
-      'Approved': 'bg-success',
-      'Rejected': 'bg-danger',
-    }[req.status] || 'bg-secondary';
-
-    const itemsSummary = req.items.map(it => `${esc(it.name)} ×${it.qty}`).join(', ');
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${esc(req.type)}</td>
-      <td style="max-width:260px;white-space:normal;font-size:.85rem">${itemsSummary}</td>
-      <td>${esc(req.date)}</td>
-      <td><span class="badge ${badgeClass}">${esc(req.status)}</span></td>
-    `;
-    tbody.appendChild(tr);
-  });
+    requests.forEach(req => {
+      const badgeClass = {
+        'Pending':  'bg-warning text-dark',
+        'Approved': 'bg-success',
+        'Rejected': 'bg-danger',
+      }[req.status] || 'bg-secondary';
+      const itemsSummary = req.items.map(it => `${esc(it.name)} ×${it.qty}`).join(', ');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${esc(req.type)}</td>
+        <td style="max-width:260px;white-space:normal;font-size:.85rem">${itemsSummary}</td>
+        <td>${esc(req.date)}</td>
+        <td><span class="badge ${badgeClass}">${esc(req.status)}</span></td>`;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="4" class="text-danger text-center py-3">${esc(err.message)}</td></tr>`;
+  }
 }
 
 let requestItemCount = 0;
@@ -535,8 +553,7 @@ function addRequestItem() {
   div.innerHTML = `
     <input type="text" class="form-control form-control-sm item-name" placeholder="Item name" />
     <input type="number" class="form-control form-control-sm req-qty item-qty" placeholder="Qty" min="1" value="1" />
-    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRequestItem(${requestItemCount})">×</button>
-  `;
+    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeRequestItem(${requestItemCount})">×</button>`;
   container.appendChild(div);
 }
 
@@ -545,13 +562,12 @@ function removeRequestItem(id) {
   if (el) el.remove();
 }
 
-function handleSubmitRequest() {
+async function handleSubmitRequest() {
   const err  = document.getElementById('request-form-error');
   const type = document.getElementById('req-type').value;
   hideError(err);
 
   if (!type) return showError(err, 'Please select a request type.');
-
   const rows = document.querySelectorAll('#req-items-container .req-item-row');
   if (!rows.length) return showError(err, 'Please add at least one item.');
 
@@ -563,30 +579,26 @@ function handleSubmitRequest() {
     if (!name) valid = false;
     else items.push({ name, qty });
   });
-
   if (!valid || !items.length) return showError(err, 'Please fill in all item names.');
 
-  window.db.requests.push({
-    type, items,
-    status:        'Pending',
-    date:          new Date().toLocaleDateString(),
-    employeeEmail: currentUser.email,
-  });
-  saveToStorage();
-
-  const modal = bootstrap.Modal.getInstance(document.getElementById('requestModal'));
-  if (modal) modal.hide();
-  document.getElementById('request-form').reset();
-  document.getElementById('req-items-container').innerHTML = '';
-  requestItemCount = 0;
-
-  showToast('Request submitted!', 'success');
-  renderRequestsTable();
+  try {
+    await apiFetch('/requests', {
+      method: 'POST',
+      body: JSON.stringify({ type, items }),
+    });
+    const modal = bootstrap.Modal.getInstance(document.getElementById('requestModal'));
+    if (modal) modal.hide();
+    document.getElementById('request-form').reset();
+    document.getElementById('req-items-container').innerHTML = '';
+    requestItemCount = 0;
+    showToast('Request submitted!', 'success');
+    renderRequestsTable();
+  } catch (err2) {
+    showError(err, err2.message);
+  }
 }
 
-/* ─────────────────────────────────────────────────────────
-   PHASE 8 — TOASTS
-───────────────────────────────────────────────────────── */
+/* TOASTS */
 function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
   const id = `toast-${Date.now()}`;
@@ -599,15 +611,12 @@ function showToast(message, type = 'info') {
     <div class="d-flex">
       <div class="toast-body">${esc(message)}</div>
       <button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="document.getElementById('${id}').remove()"></button>
-    </div>
-  `;
+    </div>`;
   container.appendChild(el);
   setTimeout(() => el.remove(), 4000);
 }
 
-/* ─────────────────────────────────────────────────────────
-   HELPERS
-───────────────────────────────────────────────────────── */
+/* HELPERS */
 function showError(el, msg) { if (!el) return; el.textContent = msg; el.classList.remove('d-none'); }
 function hideError(el)      { if (!el) return; el.textContent = ''; el.classList.add('d-none'); }
 function capitalize(str)    { return str ? str.charAt(0).toUpperCase() + str.slice(1) : ''; }
@@ -616,13 +625,9 @@ function esc(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-/* ─────────────────────────────────────────────────────────
-   INIT
-───────────────────────────────────────────────────────── */
-document.addEventListener('DOMContentLoaded', () => {
-
-  loadFromStorage();
-  restoreSession();
+/* INIT */
+document.addEventListener('DOMContentLoaded', async () => {
+  await restoreSession();
 
   window.addEventListener('hashchange', handleRouting);
   if (!window.location.hash || window.location.hash === '#') window.location.hash = '#/';
@@ -640,6 +645,10 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('employee-form')?.addEventListener('submit', handleEmployeeForm);
   document.getElementById('add-employee-btn')?.addEventListener('click', showEmployeeForm);
   document.getElementById('cancel-employee-btn')?.addEventListener('click', hideEmployeeForm);
+
+  // Wire up Add Department button (replaces the alert stub)
+  document.querySelector('#departments-page .btn-primary')
+    ?.addEventListener('click', handleAddDepartment);
 
   document.getElementById('new-request-btn')?.addEventListener('click', () => {
     document.getElementById('req-items-container').innerHTML = '';
