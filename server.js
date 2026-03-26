@@ -227,6 +227,18 @@ app.get('/api/requests', authenticateToken, (req, res) => {
   res.json(list);
 });
 
+// PATCH /api/requests/:id  (admin only — approve or reject)
+app.patch('/api/requests/:id', authenticateToken, requireAdmin, (req, res) => {
+  const { status } = req.body;
+  if (!['Approved', 'Rejected', 'Pending'].includes(status)) {
+    return res.status(400).json({ error: 'Status must be Approved, Rejected, or Pending.' });
+  }
+  const req2 = db.requests.find(r => r.id === req.params.id);
+  if (!req2) return res.status(404).json({ error: 'Request not found.' });
+  req2.status = status;
+  res.json(req2);
+});
+
 app.post('/api/requests', authenticateToken, (req, res) => {
   const { type, items } = req.body;
   if (!type || !items?.length)
