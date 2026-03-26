@@ -41,7 +41,8 @@
             <li><a class="dropdown-item role-admin" href="#/employees">Employees</a></li>
             <li><a class="dropdown-item role-admin" href="#/accounts">Accounts</a></li>
             <li><a class="dropdown-item role-admin" href="#/departments">Departments</a></li>
-            <li><a class="dropdown-item" href="#/requests">My Requests</a></li>
+            <li><a class="dropdown-item role-admin" href="#/requests">All Requests</a></li>
+            <li><a class="dropdown-item role-user-only" href="#/requests">My Requests</a></li>
             <li><hr class="dropdown-divider" /></li>
             <li><a class="dropdown-item" href="#" id="logout-btn">Logout</a></li>
           </ul>
@@ -329,8 +330,8 @@
     <!-- REQUESTS PAGE (#/requests) -->
     <section id="requests-page" class="page">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="mb-0">My Requests</h4>
-        <button class="btn btn-primary btn-sm" id="new-request-btn">+ New Request</button>
+        <h4 class="mb-0" id="requests-page-title">My Requests</h4>
+        <button class="btn btn-primary btn-sm role-user-only" id="new-request-btn">+ New Request</button>
       </div>
 
       <div class="table-responsive">
