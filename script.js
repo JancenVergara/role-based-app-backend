@@ -1,10 +1,13 @@
 'use strict';
 
+/* ─────────────────────────────────────────────────────────
+   CONFIG
+───────────────────────────────────────────────────────── */
 const API = 'http://localhost:3000/api';
 
 let currentUser = null;
 
-// API HELPER 
+// ── API HELPER ─────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
   const token = localStorage.getItem('auth_token');
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
@@ -16,9 +19,12 @@ async function apiFetch(path, options = {}) {
   return data;
 }
 
-/* ROUTING */
+/* ─────────────────────────────────────────────────────────
+   ROUTING
+───────────────────────────────────────────────────────── */
 const protectedRoutes = ['profile', 'requests'];
 const adminRoutes     = ['employees', 'accounts', 'departments'];
+// Note: 'requests' is protected (login required) but accessible to both roles
 
 function navigateTo(hash) { window.location.hash = hash; }
 
@@ -54,7 +60,9 @@ function onPageEnter(route) {
   }
 }
 
-/*  AUTH STATE */
+/* ─────────────────────────────────────────────────────────
+   AUTH STATE
+───────────────────────────────────────────────────────── */
 function setAuthState(isAuth, user = null) {
   currentUser = user;
   const body = document.body;
@@ -70,7 +78,9 @@ function setAuthState(isAuth, user = null) {
   }
 }
 
-/* REGISTER */
+/* ─────────────────────────────────────────────────────────
+   REGISTER
+───────────────────────────────────────────────────────── */
 async function handleRegister(e) {
   e.preventDefault();
   const form = document.getElementById('register-form');
@@ -103,7 +113,9 @@ async function handleRegister(e) {
   }
 }
 
-/* VERIFY EMAIL */
+/* ─────────────────────────────────────────────────────────
+   VERIFY EMAIL
+───────────────────────────────────────────────────────── */
 function renderVerifyEmail() {
   const email = localStorage.getItem('unverified_email') || '';
   const el = document.getElementById('verify-email-display');
@@ -126,7 +138,9 @@ async function handleSimulateVerify() {
   }
 }
 
-/* LOGIN */
+/* ─────────────────────────────────────────────────────────
+   LOGIN
+───────────────────────────────────────────────────────── */
 async function handleLogin(e) {
   e.preventDefault();
   const err = document.getElementById('login-error');
@@ -149,7 +163,9 @@ async function handleLogin(e) {
   }
 }
 
-/* LOGOUT */
+/* ─────────────────────────────────────────────────────────
+   LOGOUT
+───────────────────────────────────────────────────────── */
 function handleLogout(e) {
   e.preventDefault();
   localStorage.removeItem('auth_token');
@@ -157,7 +173,9 @@ function handleLogout(e) {
   navigateTo('#/');
 }
 
-/* RESTORE SESSION */
+/* ─────────────────────────────────────────────────────────
+   RESTORE SESSION
+───────────────────────────────────────────────────────── */
 async function restoreSession() {
   const token = localStorage.getItem('auth_token');
   if (!token) return;
@@ -169,7 +187,9 @@ async function restoreSession() {
   }
 }
 
-/* PROFILE */
+/* ─────────────────────────────────────────────────────────
+   PROFILE
+───────────────────────────────────────────────────────── */
 function renderProfile() {
   if (!currentUser) return;
   const u = currentUser;
@@ -181,7 +201,9 @@ function renderProfile() {
     : 'No ❌';
 }
 
-/* ACCOUNTS (admin) */
+/* ─────────────────────────────────────────────────────────
+   ACCOUNTS (admin)
+───────────────────────────────────────────────────────── */
 async function renderAccountsList() {
   const tbody = document.getElementById('accounts-tbody');
   const empty = document.getElementById('accounts-empty');
@@ -312,7 +334,9 @@ function hideAccountForm() {
   document.getElementById('account-form-panel').classList.add('d-none');
 }
 
-/* DEPARTMENTS */
+/* ─────────────────────────────────────────────────────────
+   DEPARTMENTS
+───────────────────────────────────────────────────────── */
 async function renderDepartmentsTable() {
   const tbody = document.getElementById('departments-tbody');
   const empty = document.getElementById('departments-empty');
@@ -384,7 +408,9 @@ async function handleAddDepartment() {
   }
 }
 
-/* EMPLOYEES */
+/* ─────────────────────────────────────────────────────────
+   EMPLOYEES
+───────────────────────────────────────────────────────── */
 async function renderEmployeesTable() {
   const tbody = document.getElementById('employees-tbody');
   const empty = document.getElementById('employees-empty');
@@ -509,12 +535,35 @@ async function populateDeptDropdown(selectId) {
   } catch { /* leave empty if fetch fails */ }
 }
 
-/* REQUESTS */
+/* ─────────────────────────────────────────────────────────
+   REQUESTS
+───────────────────────────────────────────────────────── */
 async function renderRequestsTable() {
-  const tbody = document.getElementById('requests-tbody');
-  const empty = document.getElementById('requests-empty');
-  tbody.innerHTML = '<tr><td colspan="4" class="text-muted text-center py-3">Loading…</td></tr>';
+  const tbody  = document.getElementById('requests-tbody');
+  const thead  = document.querySelector('#requests-page thead tr');
+  const empty  = document.getElementById('requests-empty');
+  const isAdmin = currentUser && currentUser.role === 'admin';
+  const titleEl = document.getElementById('requests-page-title');
+  if (titleEl) titleEl.textContent = isAdmin ? 'All Requests' : 'My Requests';
+  tbody.innerHTML = `<tr><td colspan="${isAdmin ? 6 : 4}" class="text-muted text-center py-3">Loading…</td></tr>`;
   if (!currentUser) return;
+
+  // Update table headers based on role
+  if (isAdmin) {
+    thead.innerHTML = `
+      <th>Type</th>
+      <th>Items</th>
+      <th>Submitted By</th>
+      <th>Date</th>
+      <th>Status</th>
+      <th>Actions</th>`;
+  } else {
+    thead.innerHTML = `
+      <th>Type</th>
+      <th>Items</th>
+      <th>Date</th>
+      <th>Status</th>`;
+  }
 
   try {
     const requests = await apiFetch('/requests');
@@ -530,15 +579,43 @@ async function renderRequestsTable() {
       }[req.status] || 'bg-secondary';
       const itemsSummary = req.items.map(it => `${esc(it.name)} ×${it.qty}`).join(', ');
       const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${esc(req.type)}</td>
-        <td style="max-width:260px;white-space:normal;font-size:.85rem">${itemsSummary}</td>
-        <td>${esc(req.date)}</td>
-        <td><span class="badge ${badgeClass}">${esc(req.status)}</span></td>`;
+
+      if (isAdmin) {
+        const isPending = req.status === 'Pending';
+        tr.innerHTML = `
+          <td>${esc(req.type)}</td>
+          <td style="max-width:220px;white-space:normal;font-size:.85rem">${itemsSummary}</td>
+          <td class="small">${esc(req.employeeEmail)}</td>
+          <td>${esc(req.date)}</td>
+          <td><span class="badge ${badgeClass}">${esc(req.status)}</span></td>
+          <td>
+            <button class="btn btn-sm btn-success me-1" onclick="updateRequestStatus('${esc(req.id)}', 'Approved')" ${isPending ? '' : 'disabled'}>✔ Approve</button>
+            <button class="btn btn-sm btn-danger"       onclick="updateRequestStatus('${esc(req.id)}', 'Rejected')" ${isPending ? '' : 'disabled'}>✖ Reject</button>
+          </td>`;
+      } else {
+        tr.innerHTML = `
+          <td>${esc(req.type)}</td>
+          <td style="max-width:260px;white-space:normal;font-size:.85rem">${itemsSummary}</td>
+          <td>${esc(req.date)}</td>
+          <td><span class="badge ${badgeClass}">${esc(req.status)}</span></td>`;
+      }
       tbody.appendChild(tr);
     });
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="4" class="text-danger text-center py-3">${esc(err.message)}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${isAdmin ? 6 : 4}" class="text-danger text-center py-3">${esc(err.message)}</td></tr>`;
+  }
+}
+
+async function updateRequestStatus(id, status) {
+  try {
+    await apiFetch(`/requests/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+    showToast(`Request ${status.toLowerCase()}.`, status === 'Approved' ? 'success' : 'danger');
+    renderRequestsTable();
+  } catch (err) {
+    showToast(err.message, 'danger');
   }
 }
 
@@ -598,7 +675,9 @@ async function handleSubmitRequest() {
   }
 }
 
-/* TOASTS */
+/* ─────────────────────────────────────────────────────────
+   TOASTS
+───────────────────────────────────────────────────────── */
 function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
   const id = `toast-${Date.now()}`;
@@ -616,7 +695,9 @@ function showToast(message, type = 'info') {
   setTimeout(() => el.remove(), 4000);
 }
 
-/* HELPERS */
+/* ─────────────────────────────────────────────────────────
+   HELPERS
+───────────────────────────────────────────────────────── */
 function showError(el, msg) { if (!el) return; el.textContent = msg; el.classList.remove('d-none'); }
 function hideError(el)      { if (!el) return; el.textContent = ''; el.classList.add('d-none'); }
 function capitalize(str)    { return str ? str.charAt(0).toUpperCase() + str.slice(1) : ''; }
@@ -625,7 +706,9 @@ function esc(str) {
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-/* INIT */
+/* ─────────────────────────────────────────────────────────
+   INIT
+───────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', async () => {
   await restoreSession();
 
