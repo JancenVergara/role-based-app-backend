@@ -7,6 +7,10 @@ body.authenticated     .role-logged-out { display: none; }
 .role-admin { display: none; }
 body.is-admin .role-admin { display: block; }
 
+/* Show My Requests only for non-admin logged-in users */
+.role-user-only { display: none; }
+body.authenticated:not(.is-admin) .role-user-only { display: block; }
+
 .req-item-row {
   display: flex;
   gap: 8px;
